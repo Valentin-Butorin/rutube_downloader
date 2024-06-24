@@ -52,7 +52,7 @@ class Rutube:
         )
 
     def _get_video_id(self):
-        result = re.findall(rf'{self._type}\/(\w+\d+)', self._video_url)
+        result = re.findall(rf'{self._type}\/([(\w+\d+)+]+)', self._video_url)
         if not result:
             raise Exception('Cannot get the video ID from URL')
         return result[0]
