@@ -9,6 +9,7 @@ FORBIDDEN_CHARS = ('/', '\\', ':', '*', '?', '"', '<', '>', '|',)
 TIMEOUT = 1
 RETRY = 5
 DATA_URL_TEMPLATE = r'https://rutube.ru/api/play/options/{}/?no_404=true&referer=https%253A%252F%252Frutube.ru&pver=v2'
+YAPPY_URL_TEMPLATE = r'https://rutube.ru/pangolin/api/web/yappy/yappypage/?client=wdp&source=shorts&videoId={}'
 
 
 class Rutube:
@@ -21,17 +22,22 @@ class Rutube:
     _title = None
     _duration = None
     _playlist = None
+    _type = 'video'
 
     def __init__(self, video_url, *args, **kwargs):
         self._video_url = video_url
 
         if self._check_url():
-            self._video_id = self._get_video_id()
-            self._data_url = self._get_data_url()
-            self._data = self._get_data()
-            self._m3u8_url = self._get_m3u8_url()
-            self._m3u8_data = self._get_m3u8_data()
-            self._title = self._get_title()
+            if '/yappy/' in self._video_url:
+                self._type = 'yappy'
+                self._video_id = self._get_video_id()
+            else:
+                self._video_id = self._get_video_id()
+                self._data_url = self._get_data_url()
+                self._data = self._get_data()
+                self._m3u8_url = self._get_m3u8_url()
+                self._m3u8_data = self._get_m3u8_data()
+                self._title = self._get_title()
 
     def _get_data_url(self):
         return DATA_URL_TEMPLATE.format(self._video_id)
@@ -46,7 +52,7 @@ class Rutube:
         )
 
     def _get_video_id(self):
-        result = re.findall(r'video\/(\w+\d+)', self._video_url)
+        result = re.findall(rf'{self._type}\/(\w+\d+)', self._video_url)
         if not result:
             raise Exception('Cannot get the video ID from URL')
         return result[0]
@@ -77,7 +83,9 @@ class Rutube:
         return self._playlist
 
     def _get_playlist(self):
-        return PlayList(self._m3u8_data, self.params)
+        if self._type == 'yappy':
+            return YappyPlaylist(self._video_id)
+        return RutubePlaylist(self._m3u8_data, self.params)
 
     def _get_m3u8_url(self):
         return self._data['video_balancer']['m3u8']
@@ -87,7 +95,50 @@ class Rutube:
         return m3u8.loads(r.text)
 
 
-class PlayList:
+class BasePlaylist:
+    _playlist = dict()
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def __iter__(self):
+        return iter(self._playlist)
+
+    def __next__(self):
+        for video in self._playlist:
+            yield video
+
+    def __repr__(self):
+        return str(self._playlist)
+
+    def __getitem__(self, i):
+        return self._playlist[i]
+
+
+class YappyPlaylist(BasePlaylist):
+    _video_id = None
+
+    def __init__(self, video_id, *args, **kwargs):
+        self._video_id = video_id
+        self._playlist[video_id] = YappyVideo(self._video_id, self._get_video_link())
+        self._playlist = list(self._playlist.values())
+
+    def _get_videos(self) -> list:
+        r = requests.get(YAPPY_URL_TEMPLATE.format(self._video_id))
+        if r.status_code != 200:
+            raise Exception(f'Error code: {r and r.status_code}')
+
+        results: list = r.json().get('results')
+        if not results:
+            raise Exception(f'No results found')
+
+        return results
+
+    def _get_video_link(self):
+        return self._get_videos()[0].get('link')
+
+
+class RutubePlaylist(BasePlaylist):
     _playlist = dict()
 
     def __init__(self, data, params, *args, **kwargs):
@@ -96,7 +147,7 @@ class PlayList:
             if res in self._playlist:
                 self._playlist[res]._reserve_path = playlist.uri
             else:
-                self._playlist[res] = Video(playlist, data, params)
+                self._playlist[res] = RutubeVideo(playlist, data, params)
 
         self._playlist = list(self._playlist.values())
 
@@ -114,7 +165,36 @@ class PlayList:
         return self._playlist[i]
 
 
-class Video:
+class YappyVideo:
+    _id = None
+    _link = None
+
+    def __init__(self, video_id, link, *args, **kwargs):
+        self._id = video_id
+        self._link = link
+
+    def __str__(self):
+        return f'{self.title}'
+
+    def __repr__(self):
+        return str(self)
+
+    @property
+    def title(self):
+        return f'{self._id}.mp4'
+
+    def download(self):
+        with alive_bar(2, title=self.title) as bar:
+            r = requests.get(self._link)
+            if r.status_code != 200:
+                raise Exception(f'Error code: {r and r.status_code}')
+            bar()
+            with open(f'{self.title}', 'wb') as f:
+                f.write(r.content)
+            bar()
+
+
+class RutubeVideo:
     _id = None
     _title = None
     _base_path = None
