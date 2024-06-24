@@ -11,6 +11,7 @@ authors = [
 description = "This is the simplest module for download videos from Rutube"
 readme = "README.md"
 requires-python = ">=3.7"
+dependencies = ["setuptools>=44.0.0", "requests>=2.31.0", "alive-progress>=3.1.4", "m3u8>=3.5.0"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
