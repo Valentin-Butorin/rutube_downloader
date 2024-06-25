@@ -28,8 +28,12 @@ class Rutube:
         self._video_url = video_url
 
         if self._check_url():
-            if '/yappy/' in self._video_url:
+            if '/shorts/' in self._video_url:
+                self._type = 'shorts'
+            elif '/yappy/' in self._video_url:
                 self._type = 'yappy'
+
+            if self._type == 'yappy':
                 self._video_id = self._get_video_id()
             else:
                 self._video_id = self._get_video_id()
