@@ -221,19 +221,24 @@ class RutubeVideo:
         self._base_path = playlist.uri
         self._resolution = playlist.stream_info.resolution
         self._codecs = playlist.stream_info.codecs
-        self._segment_urls = self._get_segment_urls()
 
     @property
     def title(self):
         return self.__str__()
 
     def _get_segment_urls(self):
+        if self._segment_urls:
+            return self._segment_urls
+
         r = requests.get(self._base_path)
         if r.status_code != 200:
             r = requests.get(self._reserve_path)
+            if r.status_code != 200:
+                raise Exception(f'Cannot get segments. Status code: {r.status_code}')
 
         data = m3u8.loads(r.text)
-        return [segment['uri'] for segment in data.data['segments']]
+        self._segment_urls = [segment['uri'] for segment in data.data['segments']]
+        return self._segment_urls
 
     @property
     def resolution(self):
@@ -256,9 +261,9 @@ class RutubeVideo:
         raise Exception(f'Error code: {r and r.status_code}')
 
     def download(self):
-        with alive_bar(len(self._segment_urls), title=self.title) as bar:
+        with alive_bar(len(self._get_segment_urls()), title=self.title) as bar:
             with open(f'{self.title}.mp4', 'wb') as f:
-                for uri in self._segment_urls:
+                for uri in self._get_segment_urls():
                     r = self._get_segment_data(
                         self._make_segment_uri(self._reserve_path, uri)) or self._get_segment_data(
                         self._make_segment_uri(self._base_path, uri))
