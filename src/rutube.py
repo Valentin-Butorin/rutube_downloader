@@ -4,6 +4,8 @@ import re
 import requests
 import time
 from alive_progress import alive_bar
+from pathlib import Path
+from typing import Optional, BinaryIO, Text
 
 FORBIDDEN_CHARS = ('/', '\\', ':', '*', '?', '"', '<', '>', '|',)
 TIMEOUT = 1
@@ -260,12 +262,27 @@ class RutubeVideo:
             time.sleep(TIMEOUT)
         raise Exception(f'Error code: {r and r.status_code}')
 
-    def download(self):
+    def _build_file_path(self, path: Text = None):
+        if not path:
+            return f'{self.title}.mp4'
+
+        target_path = Path(path.rstrip('/').rstrip('\\')).resolve()
+        if not target_path.exists():
+            target_path.mkdir(parents=True, exist_ok=True)
+        return f"{target_path / self.title}.mp4"
+
+    def _write(self, stream: Optional[BinaryIO] = None):
         with alive_bar(len(self._get_segment_urls()), title=self.title) as bar:
-            with open(f'{self.title}.mp4', 'wb') as f:
-                for uri in self._get_segment_urls():
-                    r = self._get_segment_data(
-                        self._make_segment_uri(self._reserve_path, uri)) or self._get_segment_data(
-                        self._make_segment_uri(self._base_path, uri))
-                    f.write(r.content)
-                    bar()
+            for uri in self._get_segment_urls():
+                r = self._get_segment_data(
+                    self._make_segment_uri(self._reserve_path, uri)) or self._get_segment_data(
+                    self._make_segment_uri(self._base_path, uri))
+                stream.write(r.content)
+                bar()
+
+    def download(self, path: Optional[Text] = None, stream: Optional[BinaryIO] = None):
+        if stream:
+            self._write(stream)
+        else:
+            with open(self._build_file_path(path), 'wb') as file:
+                self._write(file)
