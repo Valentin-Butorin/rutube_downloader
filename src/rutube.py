@@ -1,11 +1,17 @@
+import abc
+import enum
 import json
 import m3u8
 import re
 import requests
 import time
 from alive_progress import alive_bar
+from concurrent.futures import ThreadPoolExecutor
+from collections import deque
 from pathlib import Path
-from typing import Optional, BinaryIO, Text
+from threading import Thread
+from typing import Optional, BinaryIO, Text, List, Union
+import sys
 
 FORBIDDEN_CHARS = ('/', '\\', ':', '*', '?', '"', '<', '>', '|',)
 TIMEOUT = 1
@@ -14,193 +20,51 @@ DATA_URL_TEMPLATE = r'https://rutube.ru/api/play/options/{}/?no_404=true&referer
 YAPPY_URL_TEMPLATE = r'https://rutube.ru/pangolin/api/web/yappy/yappypage/?client=wdp&source=shorts&videoId={}'
 
 
-class Rutube:
-    _data_url = None
-    _data = None
-    _video_url = None
-    _video_id = None
-    _m3u8_url = None
-    _m3u8_data = None
-    _title = None
-    _duration = None
-    _playlist = None
-    _type = 'video'
-
-    def __init__(self, video_url, *args, **kwargs):
-        self._video_url = video_url
-
-        if self._check_url():
-            if '/shorts/' in self._video_url:
-                self._type = 'shorts'
-            elif '/yappy/' in self._video_url:
-                self._type = 'yappy'
-
-            if self._type == 'yappy':
-                self._video_id = self._get_video_id()
-            else:
-                self._video_id = self._get_video_id()
-                self._data_url = self._get_data_url()
-                self._data = self._get_data()
-                self._m3u8_url = self._get_m3u8_url()
-                self._m3u8_data = self._get_m3u8_data()
-                self._title = self._get_title()
-
-    def _get_data_url(self):
-        return DATA_URL_TEMPLATE.format(self._video_id)
-
-    @property
-    def params(self):
-        return dict(
-            video_id=self._video_id,
-            video_url=self._video_url,
-            title=self._title,
-            duration=self._duration,
-        )
-
-    def _get_video_id(self):
-        result = re.findall(rf'{self._type}\/([(\w+\d+)+]+)', self._video_url)
-        if not result:
-            raise Exception('Cannot get the video ID from URL')
-        return result[0]
-
-    def _get_data(self):
-        r = requests.get(self._data_url)
-        return json.loads(r.content)
-
-    def _check_url(self):
-        if requests.get(self._video_url).status_code != 200:
-            raise Exception(f'{self._video_url} is unavailable')
-        return True
-
-    def _get_title(self):
-        return self._clean_title(self._data.get('title')) or self._video_id
-
-    @staticmethod
-    def _clean_title(title):
-        if not title:
-            return title
-
-        return ''.join(filter(lambda x: x not in FORBIDDEN_CHARS, title))
-
-    @property
-    def playlist(self):
-        if not self._playlist:
-            self._playlist = self._get_playlist()
-        return self._playlist
-
-    def _get_playlist(self):
-        if self._type == 'yappy':
-            return YappyPlaylist(self._video_id)
-        return RutubePlaylist(self._m3u8_data, self.params)
-
-    def _get_m3u8_url(self):
-        return self._data['video_balancer']['m3u8']
-
-    def _get_m3u8_data(self):
-        r = requests.get(self._m3u8_url)
-        return m3u8.loads(r.text)
+class VideoType(enum.Enum):
+    VIDEO = 'video'
+    SHORTS = 'shorts'
+    YAPPY = 'yappy'
 
 
-class BasePlaylist:
-    _playlist = dict()
-
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def __iter__(self):
-        return iter(self._playlist)
-
-    def __next__(self):
-        for video in self._playlist:
-            yield video
-
-    def __repr__(self):
-        return str(self._playlist)
-
-    def __getitem__(self, i):
-        return self._playlist[i]
-
-
-class YappyPlaylist(BasePlaylist):
-    _video_id = None
-
-    def __init__(self, video_id, *args, **kwargs):
-        self._video_id = video_id
-        self._playlist[video_id] = YappyVideo(self._video_id, self._get_video_link())
-        self._playlist = list(self._playlist.values())
-
-    def _get_videos(self) -> list:
-        r = requests.get(YAPPY_URL_TEMPLATE.format(self._video_id))
-        if r.status_code != 200:
-            raise Exception(f'Error code: {r and r.status_code}')
-
-        results: list = r.json().get('results')
-        if not results:
-            raise Exception(f'No results found')
-
-        return results
-
-    def _get_video_link(self):
-        return self._get_videos()[0].get('link')
-
-
-class RutubePlaylist(BasePlaylist):
-    _playlist = dict()
-
-    def __init__(self, data, params, *args, **kwargs):
-        for playlist in data.playlists:
-            res = playlist.stream_info.resolution
-            if res in self._playlist:
-                self._playlist[res]._reserve_path = playlist.uri
-            else:
-                self._playlist[res] = RutubeVideo(playlist, data, params)
-
-        self._playlist = list(self._playlist.values())
-
-    def __iter__(self):
-        return iter(self._playlist)
-
-    def __next__(self):
-        for video in self._playlist:
-            yield video
-
-    def __repr__(self):
-        return str(self._playlist)
-
-    def __getitem__(self, i):
-        return self._playlist[i]
-
-
-class YappyVideo:
-    _id = None
-    _link = None
-
-    def __init__(self, video_id, link, *args, **kwargs):
-        self._id = video_id
-        self._link = link
-
-    def __str__(self):
-        return f'{self.title}'
-
-    def __repr__(self):
-        return str(self)
-
-    @property
+class VideoAbstract(abc.ABC):
+    @abc.abstractproperty
     def title(self):
-        return f'{self._id}.mp4'
+        ...
 
-    def download(self):
-        with alive_bar(2, title=self.title) as bar:
-            r = requests.get(self._link)
-            if r.status_code != 200:
-                raise Exception(f'Error code: {r and r.status_code}')
-            bar()
-            with open(f'{self.title}', 'wb') as f:
-                f.write(r.content)
-            bar()
+    @abc.abstractproperty
+    def resolution(self):
+        ...
+
+    @abc.abstractmethod
+    def _write(self, stream: Optional[BinaryIO] = None, *args, **kwargs):
+        ...
+
+    def _build_file_path(self, path: Text = None) -> str:
+        filename = f'{self.title}.mp4'
+        if not path:
+            return filename
+
+        target_path = Path(path.rstrip('/').rstrip('\\')).resolve()
+        if not target_path.exists():
+            target_path.mkdir(parents=True, exist_ok=True)
+        return target_path / filename
+
+    def download(
+            self,
+            path: Optional[Text] = None,
+            stream: Optional[BinaryIO] = None,
+            workers: int = 0,
+            *args,
+            **kwargs
+    ):
+        if stream:
+            self._write(stream, workers=workers * args, **kwargs)
+        else:
+            with open(self._build_file_path(path), 'wb') as file:
+                self._write(file, workers=workers, *args, **kwargs)
 
 
-class RutubeVideo:
+class RutubeVideo(VideoAbstract):
     _id = None
     _title = None
     _base_path = None
@@ -262,27 +126,250 @@ class RutubeVideo:
             time.sleep(TIMEOUT)
         raise Exception(f'Error code: {r and r.status_code}')
 
-    def _build_file_path(self, path: Text = None):
-        if not path:
-            return f'{self.title}.mp4'
+    def _get_segment_content(self, *args):
+        uri, bar = args[0]
+        r = (
+                self._get_segment_data(self._make_segment_uri(self._reserve_path, uri))
+                or self._get_segment_data(self._make_segment_uri(self._base_path, uri))
+        )
+        bar()
+        return r.content
 
-        target_path = Path(path.rstrip('/').rstrip('\\')).resolve()
-        if not target_path.exists():
-            target_path.mkdir(parents=True, exist_ok=True)
-        return f"{target_path / self.title}.mp4"
+    @staticmethod
+    def _write_from_deque(deq, stream, flag):
+        while True:
+            if deq:
+                stream.write(deq.popleft())
+            if flag:
+                break
 
-    def _write(self, stream: Optional[BinaryIO] = None):
+    def _write_threads(self, bar, stream: Optional[BinaryIO], workers: int = 0):
+        deq = deque(maxlen=sys.maxsize)
+        flag = []
+        writer = Thread(target=self._write_from_deque, args=(deq, stream, flag), daemon=True)
+        writer.start()
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for content in pool.map(
+                    self._get_segment_content,
+                    [(uri, bar) for uri in self._get_segment_urls()]
+            ):
+                deq.append(content)
+            else:
+                flag.append(True)
+                writer.join()
+
+    def _write(self, stream: Optional[BinaryIO], workers: int = 0, *args, **kwargs):
         with alive_bar(len(self._get_segment_urls()), title=self.title) as bar:
-            for uri in self._get_segment_urls():
-                r = self._get_segment_data(
-                    self._make_segment_uri(self._reserve_path, uri)) or self._get_segment_data(
-                    self._make_segment_uri(self._base_path, uri))
-                stream.write(r.content)
-                bar()
+            if workers:
+                self._write_threads(bar, stream, workers)
+            else:
+                for uri in self._get_segment_urls():
+                    stream.write(
+                        self._get_segment_content((uri, bar))
+                    )
 
-    def download(self, path: Optional[Text] = None, stream: Optional[BinaryIO] = None):
-        if stream:
-            self._write(stream)
-        else:
-            with open(self._build_file_path(path), 'wb') as file:
-                self._write(file)
+
+class YappyVideo(VideoAbstract):
+    _id = None
+    _link = None
+    _resolution = (1920, 1080)
+
+    def __init__(self, video_id, link, *args, **kwargs):
+        self._id = video_id
+        self._link = link
+
+    def __str__(self):
+        return f'{self.title}'
+
+    def __repr__(self):
+        return str(self)
+
+    @property
+    def title(self):
+        return self._id
+
+    @property
+    def resolution(self):
+        return 'x'.join(map(str, self._resolution))
+
+    def _write(self, stream: Optional[BinaryIO] = None, *args, **kwargs):
+        with alive_bar(2, title=self.title) as bar:
+            r = requests.get(self._link)
+            if r.status_code != 200:
+                raise Exception(f'Error code: {r and r.status_code}')
+            bar()
+            stream.write(r.content)
+            bar()
+
+
+class BasePlaylist(abc.ABC):
+    _playlist: List[Union[RutubeVideo, YappyVideo]] = []
+
+    @abc.abstractmethod
+    def __init__(self, *args, **kwargs):
+        ...
+
+    def __iter__(self):
+        return iter(self._playlist)
+
+    def __next__(self):
+        for video in self._playlist:
+            yield video
+
+    def __repr__(self):
+        return str(self._playlist)
+
+    def __getitem__(self, i):
+        return self._playlist[i]
+
+    def available_resolutions(self) -> list:
+        return [min(v._resolution) for v in self._playlist]
+
+    def get_best(self) -> RutubeVideo | None:
+        if self._playlist:
+            return self._playlist[-1]
+
+    def get_worst(self) -> RutubeVideo | None:
+        if self._playlist:
+            return self._playlist[0]
+
+    def get_by_resolution(self, value: int) -> RutubeVideo | None:
+        value = int(value)
+        if self._playlist:
+            for video in reversed(self._playlist):
+                if video._resolution[-1] == value:
+                    return video
+
+
+class RutubePlaylist(BasePlaylist):
+    def __init__(self, data, params, *args, **kwargs):
+        _playlist_dict = {}
+        for playlist in data.playlists:
+            res = playlist.stream_info.resolution
+            if res in _playlist_dict:
+                _playlist_dict[res]._reserve_path = playlist.uri
+            else:
+                _playlist_dict[res] = RutubeVideo(playlist, data, params)
+
+        self._playlist: List[RutubeVideo] = list(_playlist_dict.values())
+
+
+class YappyPlaylist(BasePlaylist):
+    _video_id = None
+
+    def __init__(self, video_id, *args, **kwargs):
+        self._video_id = video_id
+        self._playlist = [YappyVideo(self._video_id, self._get_video_link())]
+
+    def _get_videos(self) -> list:
+        r = requests.get(YAPPY_URL_TEMPLATE.format(self._video_id))
+        if r.status_code != 200:
+            raise Exception(f'Error code: {r and r.status_code}')
+
+        results: list = r.json().get('results')
+        if not results:
+            raise Exception(f'No results found')
+
+        return results
+
+    def _get_video_link(self):
+        return self._get_videos()[0].get('link')
+
+
+class Rutube:
+    _data_url = None
+    _data = None
+    _video_url = None
+    _video_id = None
+    _m3u8_url = None
+    _m3u8_data = None
+    _title = None
+    _duration = None
+    _playlist: RutubePlaylist | YappyPlaylist = None
+    _type = VideoType.VIDEO
+
+    def __init__(self, video_url, *args, **kwargs):
+        self._video_url = video_url
+
+        if self._check_url():
+            if f'/{VideoType.SHORTS.value}/' in self._video_url:
+                self._type = VideoType.SHORTS
+            elif f'/{VideoType.YAPPY.value}/' in self._video_url:
+                self._type = VideoType.YAPPY
+
+            if self._type == VideoType.YAPPY:
+                self._video_id = self._get_video_id()
+            else:
+                self._video_id = self._get_video_id()
+                self._data_url = self._get_data_url()
+                self._data = self._get_data()
+                self._m3u8_url = self._get_m3u8_url()
+                self._m3u8_data = self._get_m3u8_data()
+                self._title = self._get_title()
+
+    @property
+    def is_video(self):
+        return self._type == VideoType.VIDEO
+
+    @property
+    def is_shorts(self):
+        return self._type == VideoType.SHORTS
+
+    @property
+    def is_yappy(self):
+        return self._type == VideoType.YAPPY
+
+    def _get_data_url(self):
+        return DATA_URL_TEMPLATE.format(self._video_id)
+
+    @property
+    def _params(self):
+        return dict(
+            video_id=self._video_id,
+            video_url=self._video_url,
+            title=self._title,
+            duration=self._duration,
+        )
+
+    def _get_video_id(self):
+        result = re.findall(rf'{self._type.value}\/([(\w+\d+)+]+)', self._video_url)
+        if not result:
+            raise Exception('Cannot get the video ID from URL')
+        return result[0]
+
+    def _get_data(self):
+        r = requests.get(self._data_url)
+        return json.loads(r.content)
+
+    def _check_url(self):
+        if requests.get(self._video_url).status_code != 200:
+            raise Exception(f'{self._video_url} is unavailable')
+        return True
+
+    def _get_title(self):
+        return self._clean_title(self._data.get('title')) or self._video_id
+
+    @staticmethod
+    def _clean_title(title):
+        if not title:
+            return title
+
+        return ''.join(filter(lambda x: x not in FORBIDDEN_CHARS, title))
+
+    @property
+    def playlist(self):
+        if not self._playlist:
+            self._playlist = self._get_playlist()
+        return self._playlist
+
+    def _get_playlist(self) -> Union[RutubePlaylist, YappyPlaylist]:
+        if self._type == VideoType.YAPPY:
+            return YappyPlaylist(self._video_id)
+        return RutubePlaylist(self._m3u8_data, self._params)
+
+    def _get_m3u8_url(self):
+        return self._data['video_balancer']['m3u8']
+
+    def _get_m3u8_data(self):
+        r = requests.get(self._m3u8_url)
+        return m3u8.loads(r.text)

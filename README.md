@@ -1,28 +1,83 @@
 # Rutube Downloader
 
 ## Get it
+
 ```python
 pip install rutube-downloader
 ```
 
 ## Try it
+
 ```python
 from rutube import Rutube
-from io import BytesIO
 
 rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 
+# Get a list of videos
+# Each object is the same video but with different resolution
 print(rt.playlist)  # [Nature 4k (272x480), Nature 4k (408x720), Nature 4k (608x1080)]
 
-video = rt.playlist[-1]
-video.download()  # Download a file and save it to the current directory 
-video.download('downloads\saved-videos')  # Path may be absolute or relative
+# Get a list of available resolutions
+print(rt.playlist.available_resolutions)  # [480, 720, 1080]
+
+# Download a video with specific resolution and save it to the current directory 
+rt.playlist.get_by_resolution(720).download()
+
+# Download a video with the best quality and save it to specific directory 
+# Path may be absolute or relative
+rt.playlist.get_best().download('downloads/saved-videos')
+```
+
+## Features
+
+### Get video with specific resolution
+
+```python
+from rutube import Rutube
+
+rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
+
+# Returns a video with the best quality
+rt.playlist.get_best()
+
+# Returns a video with the worst quality
+rt.playlist.get_worst()
+
+# Returns None if not found
+rt.playlist.get_by_resolution(1080)
+
+# Returns a list of integers - [480, 720, 1080]
+rt.playlist.available_resolutions
+```
+
+### Writing to bytes
+
+```python
+from rutube import Rutube
+from io import BytesIO, FileIO
+
+rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 
 with open('video.mp4', 'wb') as f:
-    video.download(stream=f)
+    rt.playlist.get_best().download(stream=f)
 
-with BytesIO() as stream:  # Or FileIO with wb/rb+ mode
-    video.download(stream=stream)
+with BytesIO() as stream:
+    rt.playlist.get_best().download(stream=stream)
 
+with FileIO() as file:
+    rt.playlist.get_best().download(stream=file)
+```
 
+### Faster downloading
+Downloading using threads. Call _download()_ with number of workers as argument.
+
+> [!WARNING]
+> It's expensive way to download. Be careful to use it!
+
+```python
+from rutube import Rutube
+
+rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
+
+rt.playlist.get_best().download(workers=8)
 ```
