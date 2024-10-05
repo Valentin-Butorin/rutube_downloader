@@ -18,7 +18,7 @@ rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 print(rt.playlist)  # [Nature 4k (272x480), Nature 4k (408x720), Nature 4k (608x1080)]
 
 # Get a list of available resolutions
-print(rt.available_resolutions)  # ['480', '720', '1080']
+print(rt.available_resolutions)  # [480, 720, 1080]
 
 # Download a video with specific resolution and save it to the current directory 
 rt.get_by_resolution(720).download()
