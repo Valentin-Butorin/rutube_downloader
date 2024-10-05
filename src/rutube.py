@@ -222,9 +222,12 @@ class BasePlaylist(abc.ABC):
     def __getitem__(self, i):
         return self._playlist[i]
 
+    def __len__(self):
+        return len(self._playlist) if self._playlist else 0
+
     @property
     def available_resolutions(self) -> List[Text]:
-        return [str(v._resolution[-1]) for v in self._playlist]
+        return [v._resolution[-1] for v in self._playlist]
 
     def get_best(self) -> RutubeVideo | None:
         if self._playlist:
@@ -308,6 +311,9 @@ class Rutube:
                 self._m3u8_data = self._get_m3u8_data()
                 self._title = self._get_title()
 
+    def __len__(self):
+        return len(self.playlist) if self.playlist else 0
+
     @property
     def is_video(self):
         return self._type == VideoType.VIDEO
@@ -390,18 +396,3 @@ class Rutube:
     def _get_m3u8_data(self):
         r = requests.get(self._m3u8_url)
         return m3u8.loads(r.text)
-
-import pyinputplus as pyinp
-rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51')
-resvar = pyinp.inputInt(
-    prompt=f"Select resolution between {', '.join(rt.available_resolutions)}: ",
-)
-print(resvar)
-
-resvar = pyinp.inputMenu(
-    [v.resolution for v in rt.playlist],
-    prompt='Select resolution to download:\n',
-    numbered=True,
-)
-rt.playlist[resvar - 1].download()
-print(resvar)
