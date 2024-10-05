@@ -64,7 +64,7 @@ with open('video.mp4', 'wb') as f:
 with BytesIO() as stream:
     rt.get_best().download(stream=stream)
 
-with FileIO() as file:
+with FileIO('video.mp4', 'wb') as file:  # Mode: wb or rb+
     rt.get_best().download(stream=file)
 ```
 
