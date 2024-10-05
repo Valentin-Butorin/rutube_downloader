@@ -365,19 +365,19 @@ class Rutube:
 
     @property
     def available_resolutions(self) -> List[Text]:
-        return self._playlist.available_resolutions
+        return self.playlist.available_resolutions
 
     def get_best(self) -> RutubeVideo | None:
-        if self._playlist:
+        if self.playlist:
             return self._playlist.get_best()
 
     def get_worst(self) -> RutubeVideo | None:
-        if self._playlist:
-            return self._playlist.get_worst()
+        if self.playlist:
+            return self.playlist.get_worst()
 
     def get_by_resolution(self, value: int) -> RutubeVideo | None:
-        if self._playlist:
-            return self._playlist.get_by_resolution(value)
+        if self.playlist:
+            return self.playlist.get_by_resolution(value)
 
     def _get_playlist(self) -> Union[RutubePlaylist, YappyPlaylist]:
         if self._type == VideoType.YAPPY:
@@ -390,3 +390,18 @@ class Rutube:
     def _get_m3u8_data(self):
         r = requests.get(self._m3u8_url)
         return m3u8.loads(r.text)
+
+import pyinputplus as pyinp
+rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51')
+resvar = pyinp.inputInt(
+    prompt=f"Select resolution between {', '.join(rt.available_resolutions)}: ",
+)
+print(resvar)
+
+resvar = pyinp.inputMenu(
+    [v.resolution for v in rt.playlist],
+    prompt='Select resolution to download:\n',
+    numbered=True,
+)
+rt.playlist[resvar - 1].download()
+print(resvar)
