@@ -222,8 +222,12 @@ class BasePlaylist(abc.ABC):
     def __getitem__(self, i):
         return self._playlist[i]
 
-    def available_resolutions(self) -> list:
-        return [min(v._resolution) for v in self._playlist]
+    def __len__(self):
+        return len(self._playlist) if self._playlist else 0
+
+    @property
+    def available_resolutions(self) -> List[Text]:
+        return [v._resolution[-1] for v in self._playlist]
 
     def get_best(self) -> RutubeVideo | None:
         if self._playlist:
@@ -307,6 +311,9 @@ class Rutube:
                 self._m3u8_data = self._get_m3u8_data()
                 self._title = self._get_title()
 
+    def __len__(self):
+        return len(self.playlist) if self.playlist else 0
+
     @property
     def is_video(self):
         return self._type == VideoType.VIDEO
@@ -361,6 +368,22 @@ class Rutube:
         if not self._playlist:
             self._playlist = self._get_playlist()
         return self._playlist
+
+    @property
+    def available_resolutions(self) -> List[Text]:
+        return self.playlist.available_resolutions
+
+    def get_best(self) -> RutubeVideo | None:
+        if self.playlist:
+            return self._playlist.get_best()
+
+    def get_worst(self) -> RutubeVideo | None:
+        if self.playlist:
+            return self.playlist.get_worst()
+
+    def get_by_resolution(self, value: int) -> RutubeVideo | None:
+        if self.playlist:
+            return self.playlist.get_by_resolution(value)
 
     def _get_playlist(self) -> Union[RutubePlaylist, YappyPlaylist]:
         if self._type == VideoType.YAPPY:

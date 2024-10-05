@@ -18,14 +18,14 @@ rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 print(rt.playlist)  # [Nature 4k (272x480), Nature 4k (408x720), Nature 4k (608x1080)]
 
 # Get a list of available resolutions
-print(rt.playlist.available_resolutions())  # [480, 720, 1080]
+print(rt.playlist.available_resolutions)  # ['480', '720', '1080']
 
 # Download a video with specific resolution and save it to the current directory 
 rt.playlist.get_by_resolution(720).download()
 
 # Download a video with the best quality and save it to specific directory 
 # Path may be absolute or relative
-rt.playlist.get_best().download('downloads/saved-videos')
+rt.get_best().download('downloads/saved-videos')
 ```
 
 ## Features
@@ -38,16 +38,16 @@ from rutube import Rutube
 rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 
 # Returns a video with the best quality
-rt.playlist.get_best()
+rt.get_best()
 
 # Returns a video with the worst quality
-rt.playlist.get_worst()
+rt.get_worst()
 
 # Returns None if not found
-rt.playlist.get_by_resolution(1080)
+rt.get_by_resolution(1080)
 
 # Returns a list of integers - [480, 720, 1080]
-rt.playlist.available_resolutions()
+rt.available_resolutions
 ```
 
 ### Writing to bytes
@@ -59,13 +59,13 @@ from io import BytesIO, FileIO
 rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 
 with open('video.mp4', 'wb') as f:
-    rt.playlist.get_best().download(stream=f)
+    rt.get_best().download(stream=f)
 
 with BytesIO() as stream:
-    rt.playlist.get_best().download(stream=stream)
+    rt.get_best().download(stream=stream)
 
 with FileIO() as file:
-    rt.playlist.get_best().download(stream=file)
+    rt.get_best().download(stream=file)
 ```
 
 ### Faster downloading
@@ -79,5 +79,5 @@ from rutube import Rutube
 
 rt = Rutube('https://rutube.ru/video/5c5f0ae2d9744d11a05b76bd327cbb51/')
 
-rt.playlist.get_best().download(workers=8)
+rt.get_best().download(workers=8)
 ```
