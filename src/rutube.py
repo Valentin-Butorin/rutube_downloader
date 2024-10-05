@@ -222,8 +222,9 @@ class BasePlaylist(abc.ABC):
     def __getitem__(self, i):
         return self._playlist[i]
 
-    def available_resolutions(self) -> list:
-        return [min(v._resolution) for v in self._playlist]
+    @property
+    def available_resolutions(self) -> List[Text]:
+        return [str(v._resolution[-1]) for v in self._playlist]
 
     def get_best(self) -> RutubeVideo | None:
         if self._playlist:
@@ -361,6 +362,22 @@ class Rutube:
         if not self._playlist:
             self._playlist = self._get_playlist()
         return self._playlist
+
+    @property
+    def available_resolutions(self) -> List[Text]:
+        return self._playlist.available_resolutions
+
+    def get_best(self) -> RutubeVideo | None:
+        if self._playlist:
+            return self._playlist.get_best()
+
+    def get_worst(self) -> RutubeVideo | None:
+        if self._playlist:
+            return self._playlist.get_worst()
+
+    def get_by_resolution(self, value: int) -> RutubeVideo | None:
+        if self._playlist:
+            return self._playlist.get_by_resolution(value)
 
     def _get_playlist(self) -> Union[RutubePlaylist, YappyPlaylist]:
         if self._type == VideoType.YAPPY:
